@@ -35,29 +35,54 @@
 
 static gchar *folder = NULL;
 
+
 #define CLIP_DESC \
-"uridecodebin uri=%s expose-all-streams=false caps=audio/x-raw ! audioconvert ! audioresample"
+" uridecodebin expose-all-streams=false caps=audio/x-raw uri=%s ! audioconvert ! audio/x-raw, channels=2 ! tee name=t ! " \
+" audioconvert ! audioresample ! audiobuffersplit strict-buffer-size=true output-buffer-duration=512/44100 ! " \
+" redpilldemixing plugin-path=\"/home/meh/devel/gst-build-1.12.3/subprojects/RPVRContentExamples/Plugins/Venice/Binaries/ThirdParty/VeniceCore/Win64\" mid-frame=true name=d " \
+" interleave name=i " \
+" t. ! deinterleave name=di " \
+" di.src_0 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_0 " \
+" di.src_1 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_1 " \
+" d.src_1 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_2  " \
+" d.src_2 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_3  " \
+" d.src_3 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_4  " \
+" d.src_4 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_5  " \
+" i.src ! audio/x-raw, format=F32LE ! capssetter caps=\"audio/x-raw,channels=6,channel-mask=(bitmask)0x3f\" ! audioconvert ! audioresample ! audio/x-raw, rate=48000, format=S16LE ! audioconvert ! audioresample ! " \
+"capssetter caps=\"audio/x-raw,channels=6,channel-mask=(bitmask)0x0,layout=interleaved,format=S16LE,rate=48000\""
 
 #define LIVE_DESC \
-"interaudiosrc channel=%s ! audioconvert ! audioresample"
+" interaudiosrc channel=%s ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=2, rate=44100 ! tee name=t ! " \
+" audioconvert ! audioresample ! audiobuffersplit strict-buffer-size=true output-buffer-duration=512/44100 ! " \
+" redpilldemixing plugin-path=\"/home/meh/devel/gst-build-1.12.3/subprojects/RPVRContentExamples/Plugins/Venice/Binaries/ThirdParty/VeniceCore/Win64\" mid-frame=true name=dlive " \
+" interleave name=i " \
+" t. ! queue ! deinterleave name=di " \
+" di.src_0 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_0 " \
+" di.src_1 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_1 " \
+" dlive.src_1 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_2  " \
+" dlive.src_2 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_3  " \
+" dlive.src_3 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_4  " \
+" dlive.src_4 ! queue ! audioconvert ! audioresample ! audio/x-raw, channels=1, rate=44100 ! audiobuffersplit output-buffer-duration=512/44100 ! i.sink_5  " \
+" i.src ! audio/x-raw, format=F32LE ! capssetter caps=\"audio/x-raw,channels=6,channel-mask=(bitmask)0x3f\" ! audioconvert ! audioresample ! audio/x-raw, rate=48000, format=S16LE ! audioconvert ! audioresample ! " \
+"capssetter caps=\"audio/x-raw,channels=6,channel-mask=(bitmask)0x0,layout=interleaved,format=S16LE,rate=48000\""
 
-#define ENCODER "opusenc bitrate=192000 send-samples-events=true"
+#define ENCODER "opusenc bitrate=450000 send-samples-events=true"
 
 #define PARSER "opusparse"
 
 #define PAYLOADER "rtpgstpay"
 
-#define OUTPUT_CAPS "audio/x-raw,channels=2,rate=48000"
+#define OUTPUT_CAPS "audio/x-raw,channels=6,channel-mask=(bitmask)0x0,layout=interleaved,format=S16LE,rate=48000"
 
-#define N_CHANNELS 2
+#define N_CHANNELS 6
 #define FRAMES_PER_BLOCK 512
 
-#define DEFAULT_SAP_ADDRESS "224.0.0.56"
-#define DEFAULT_SAP_PORT 9875
-#define SAP_INTERVAL_SECONDS 1
-#define MIME_TYPE "application/sdp"
-
 #define LATENCY 40
+
+/* We need to set the latency property of audiomixer, because
+ * the live branch is not immediately plugged in, this is a bit awkward
+ */
+#define DEMIXING_LATENCY 130
 
 /* Audio clip */
 
@@ -113,7 +138,7 @@ handle_message (GstBin * bin, GstMessage * message)
       gchar *dbg;
 
       gst_message_parse_error (message, &error, &dbg);
-      GST_DEBUG_OBJECT (self, "Error: %s (%s)", error->message, dbg);
+      GST_WARNING_OBJECT (self, "Error: %s (%s)", error->message, dbg);
 
       g_error_free (error);
       g_free (dbg);
@@ -469,10 +494,14 @@ queue_next_clip (TestSequencer * self)
 
   if (self->live) {
     GST_INFO_OBJECT (self, "We're doing it live!");
-    self->current_clip = g_object_new (TEST_TYPE_CLIP, "live", self->live, "room", self->room, NULL);
+    self->current_clip =
+        g_object_new (TEST_TYPE_CLIP, "live", self->live, "room", self->room,
+        NULL);
   } else {
     GST_INFO_OBJECT (self, "Queuing %s", (gchar *) self->next_uri->data);
-    self->current_clip = g_object_new (TEST_TYPE_CLIP, "uri", self->next_uri->data, "room", self->room, NULL);
+    self->current_clip =
+        g_object_new (TEST_TYPE_CLIP, "uri", self->next_uri->data, "room",
+        self->room, NULL);
   }
 
   gst_bin_add (GST_BIN (self), GST_ELEMENT (self->current_clip));
@@ -483,7 +512,8 @@ queue_next_clip (TestSequencer * self)
   if (self->live) {
     gst_pad_link (clip_srcpad, self->live_pad);
   } else {
-    GstPad *concat_sinkpad = gst_element_get_request_pad (self->concat, "sink_%u");
+    GstPad *concat_sinkpad =
+        gst_element_get_request_pad (self->concat, "sink_%u");
     gst_pad_link (clip_srcpad, concat_sinkpad);
     gst_object_unref (concat_sinkpad);
   }
@@ -569,6 +599,8 @@ test_sequencer_constructed (GObject * object)
   gst_bin_add (GST_BIN (self), resample);
 
   self->mixer = gst_element_factory_make ("audiomixer", NULL);
+  g_object_set (self->mixer, "latency",
+      (DEMIXING_LATENCY + LATENCY) * GST_MSECOND, NULL);
   gst_bin_add (GST_BIN (self), self->mixer);
 
   asplit = gst_element_factory_make ("audiobuffersplit", NULL);
@@ -693,7 +725,7 @@ test_sequencer_next (TestSequencer * self)
 }
 
 static void
-test_sequencer_set_live (TestSequencer *self)
+test_sequencer_set_live (TestSequencer * self)
 {
   if (!self->live) {
     self->live = TRUE;
@@ -705,7 +737,7 @@ test_sequencer_set_live (TestSequencer *self)
 }
 
 static void
-test_sequencer_unset_live (TestSequencer *self)
+test_sequencer_unset_live (TestSequencer * self)
 {
   if (self->live) {
     gint64 mix_pos;
@@ -799,7 +831,9 @@ create_recorder_element (GstRTSPMediaFactory * factory, const GstRTSPUrl * url)
 {
   GstElement *res;
   GError *error = NULL;
-  gchar *bin_desc = g_strdup_printf ("decodebin name=depay0 ! interaudiosink channel=%s", url->abspath);
+  gchar *bin_desc =
+      g_strdup_printf ("decodebin name=depay0 ! interaudiosink channel=%s",
+      url->abspath);
 
   res = gst_parse_launch_full (bin_desc, NULL, GST_PARSE_FLAG_NONE, &error);
   g_free (bin_desc);
@@ -888,7 +922,9 @@ create_sequencer_element (GstRTSPMediaFactory * factory, const GstRTSPUrl * url)
 {
   GstElement *res;
 
-  res = g_object_new (TEST_TYPE_SEQUENCER, "folder", folder, "room", url->abspath, NULL);
+  res =
+      g_object_new (TEST_TYPE_SEQUENCER, "folder", folder, "room", url->abspath,
+      NULL);
 
   return GST_ELEMENT (res);
 }
@@ -1030,10 +1066,12 @@ main (int argc, char *argv[])
 
   gst_rtsp_server_attach (server, NULL);
 
-  g_print ("Accepting clients on rtsp://%s:%d/test\n", gst_rtsp_server_get_address (server),
+  g_print ("Accepting clients on rtsp://%s:%d/test\n",
+      gst_rtsp_server_get_address (server),
       gst_rtsp_server_get_bound_port (server));
 
-  g_print ("Expecting DJ input on rtsp://%s:%d/test-input\n", gst_rtsp_server_get_address (server),
+  g_print ("Expecting DJ input on rtsp://%s:%d/test-input\n",
+      gst_rtsp_server_get_address (server),
       gst_rtsp_server_get_bound_port (server));
 
   /* start serving */

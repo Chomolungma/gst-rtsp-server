@@ -32,20 +32,20 @@
 #endif
 #include <rpmeta.h>
 
-/* This value is only suitable for local networks with no congestion */
-#define LATENCY 40
-
-#define PLAYBACK_PIPELINE_DESC "rtspsrc name=src ! rpdepay ! rtpgstdepay ! opusdec ! " \
-  "audiobuffersplit output-buffer-duration=512/48000 name=split ! autoaudiosink"
-
-#define DJ_PIPELINE_DESC "pulsesrc ! opusenc ! queue ! rtspclientsink location=%s latency=%d"
-
 #define FRAMES_PER_BLOCK 512
 
-#define DEFAULT_SAP_ADDRESS "224.0.0.56"
-#define DEFAULT_SAP_PORT 9875
-#define MIME_TYPE "application/sdp"
-#define SDP_HEADER "v=0\n"
+#define LATENCY 40
+
+#define DJ_PIPELINE_DESC "autoaudiosrc ! opusenc ! rtspclientsink location=%s latency=%d"
+
+#define PLAYBACK_PIPELINE_DESC "rtspsrc name=src ! rpdepay ! rtpgstdepay ! opusdec ! " \
+  "audiobuffersplit output-buffer-duration=512/44100 name=split ! "\
+  "deinterleave name=d d.src_0 ! queue ! audioconvert ! audioresample ! autoaudiosink " \
+  " d.src_1 ! queue ! audioconvert ! audioresample ! autoaudiosink " \
+  " d.src_2 ! queue ! audioconvert ! audioresample ! fakesink " \
+  " d.src_3 ! queue ! audioconvert ! audioresample ! fakesink " \
+  " d.src_4 ! queue ! audioconvert ! audioresample ! fakesink " \
+  " d.src_5 ! queue ! audioconvert ! audioresample ! fakesink "
 
 typedef struct
 {
@@ -199,7 +199,8 @@ start_pipeline (Context * ctx)
   gboolean ret = FALSE;
 
   if (ctx->dj) {
-    gchar *bin_desc = g_strdup_printf (DJ_PIPELINE_DESC, ctx->location, LATENCY);
+    gchar *bin_desc =
+        g_strdup_printf (DJ_PIPELINE_DESC, ctx->location, LATENCY);
     ctx->pipe = gst_parse_launch (bin_desc, &err);
     g_free (bin_desc);
   } else {
@@ -247,7 +248,7 @@ free_context (Context * ctx)
 }
 
 static gboolean
-try_to_start_pipeline (Context *ctx)
+try_to_start_pipeline (Context * ctx)
 {
   if (!ctx->pipe) {
     start_pipeline (ctx);
@@ -265,7 +266,8 @@ main (int argc, char *argv[])
   gst_init (&argc, &argv);
 
   if (argc < 2) {
-    g_print ("usage: %s SERVER ADDRESS [--dj]\n" "example: %s rtsp://0.0.0.0:8554/test\n", argv[0], argv[0]);
+    g_print ("usage: %s SERVER ADDRESS [--dj]\n"
+        "example: %s rtsp://0.0.0.0:8554/test\n", argv[0], argv[0]);
     return -1;
   }
 
