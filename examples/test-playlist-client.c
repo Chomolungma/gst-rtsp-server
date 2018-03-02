@@ -38,10 +38,11 @@
 
 #define DJ_PIPELINE_DESC "autoaudiosrc ! opusenc ! rtspclientsink location=%s latency=%d"
 
-#define PLAYBACK_PIPELINE_DESC "rtspsrc name=src ! rpdepay ! rtpgstdepay ! opusdec ! " \
+#define PLAYBACK_PIPELINE_DESC "interleave name=i ! audioconvert ! audioresample ! queue ! autoaudiosink "\
+  "rtspsrc name=src ! rpdepay ! rtpgstdepay ! opusdec ! " \
   "audiobuffersplit output-buffer-duration=512/44100 name=split ! "\
-  "deinterleave name=d d.src_0 ! queue ! audioconvert ! audioresample ! autoaudiosink " \
-  " d.src_1 ! queue ! audioconvert ! audioresample ! autoaudiosink " \
+  "deinterleave name=d d.src_0 ! queue ! i. " \
+  " d.src_1 ! queue ! i. " \
   " d.src_2 ! queue ! audioconvert ! audioresample ! fakesink " \
   " d.src_3 ! queue ! audioconvert ! audioresample ! fakesink " \
   " d.src_4 ! queue ! audioconvert ! audioresample ! fakesink " \
