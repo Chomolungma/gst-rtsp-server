@@ -82,7 +82,7 @@ static gchar *folder = NULL;
 /* We need to set the latency property of audiomixer, because
  * the live branch is not immediately plugged in, this is a bit awkward
  */
-#define DEMIXING_LATENCY 130
+#define DEMIXING_LATENCY 150
 
 /* Audio clip */
 
@@ -600,7 +600,7 @@ test_sequencer_constructed (GObject * object)
 
   self->mixer = gst_element_factory_make ("audiomixer", NULL);
   g_object_set (self->mixer, "latency",
-      (DEMIXING_LATENCY + LATENCY) * GST_MSECOND, NULL);
+      (DEMIXING_LATENCY) * GST_MSECOND, NULL);
   gst_bin_add (GST_BIN (self), self->mixer);
 
   asplit = gst_element_factory_make ("audiobuffersplit", NULL);
