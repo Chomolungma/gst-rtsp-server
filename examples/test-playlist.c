@@ -66,7 +66,7 @@ static gchar *folder = NULL;
 " i.src ! audio/x-raw, format=F32LE ! capssetter caps=\"audio/x-raw,channels=6,channel-mask=(bitmask)0x3f\" ! audioconvert ! audioresample ! audio/x-raw, rate=48000, format=S16LE ! audioconvert ! audioresample ! " \
 "capssetter caps=\"audio/x-raw,channels=6,channel-mask=(bitmask)0x0,layout=interleaved,format=S16LE,rate=48000\""
 
-#define ENCODER "opusenc bitrate=450000 send-samples-events=true"
+#define ENCODER "opusenc bitrate=256000 send-samples-events=true"
 
 #define PARSER "opusparse"
 
